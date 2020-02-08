@@ -22,58 +22,71 @@ dlist = dir(APTFolder);
 % remove . and .. 
 dlist = dlist(cellfun(@(x) x ~= 1, {dlist.isdir}));
 
-BiasStack = [];
-for i = 1:length(dlist)
-    if contains(dlist(i).name, 'B_')
-        fprintf('%s %s %s\n',datestr(now,dateformat), 'reading BIAS', dlist(i).name);
-        dt = fitsread(fullfile(APTFolder, dlist(i).name));
-        BiasStack = cat(3, BiasStack, dt);
+% check Master BIAS exist
+if isfile(fullfile(APTFolder, 'MASTER', 'Master_Bias.fit'))
+    fprintf('%s %s\n',datestr(now,dateformat), 'Master_BIAS found.'); 
+    BiasOutput = fitsread(fullfile(APTFolder, 'MASTER', 'Master_Bias.fit'));
+else
+    fprintf('%s %s\n',datestr(now,dateformat), 'generate Master_BIAS.'); 
+    BiasStack = [];
+    for i = 1:length(dlist)
+        if contains(dlist(i).name, 'B_')
+            fprintf('%s %s %s\n',datestr(now,dateformat), 'reading BIAS', dlist(i).name);
+            dt = fitsread(fullfile(APTFolder, dlist(i).name));
+            BiasStack = cat(3, BiasStack, dt);
+        end
     end
+
+    fprintf('%s %s\n', datestr(now,dateformat),'Master BIAS Start');
+    % (2) Stack Average, Sigma Clipping (-3σ, +3σ)
+    B_Ave = mean(BiasStack, 3);
+    B_Mid = median(BiasStack, 3);
+    B_Std = std(BiasStack, 0, 3);
+
+    % Rejection Map, 1 = Reject / 0 = Keep
+    Rejection = (BiasStack < B_Ave - B_Std .* 3 |...
+                 B_Ave + B_Std .* 3 < BiasStack);
+
+    % Keep Original + Reject and Replace by Median
+    BiasStack = BiasStack .* ~Rejection + B_Mid .* Rejection;    
+
+    BiasOutput = mean(BiasStack, 3);
+    fitswrite(BiasOutput, fullfile(APTFolder, 'MASTER', 'Master_Bias.fit'));
+    fprintf('%s %s\n', datestr(now,dateformat),'Master BIAS done');
 end
-
-fprintf('%s %s\n', datestr(now,dateformat),'Master BIAS Start');
-% (2) Stack Average, Sigma Clipping (-3σ, +3σ)
-B_Ave = mean(BiasStack, 3);
-B_Mid = median(BiasStack, 3);
-B_Std = std(BiasStack, 0, 3);
-
-% Rejection Map, 1 = Reject / 0 = Keep
-Rejection = (BiasStack < B_Ave - B_Std .* 3 |...
-             B_Ave + B_Std .* 3 < BiasStack);
-
-% Keep Original + Reject and Replace by Median
-BiasStack = BiasStack .* ~Rejection + B_Mid .* Rejection;    
-
-BiasOutput = mean(BiasStack, 3);
-fitswrite(BiasOutput, fullfile(APTFolder, 'MASTER', 'Master_Bias.fit'));
-fprintf('%s %s\n', datestr(now,dateformat),'Master BIAS done');
 
 % Dark FIle, same as BIAS
-DarkStack = [];
-for i = 1:length(dlist)
-    if contains(dlist(i).name, 'D_')
-        fprintf('%s %s %s\n',datestr(now,dateformat), 'reading DARK', dlist(i).name); 
-        dt = fitsread(fullfile(APTFolder, dlist(i).name));
-        DarkStack = cat(3, DarkStack, dt);
+if isfile(fullfile(APTFolder, 'MASTER', 'Master_Dark.fit'))
+    fprintf('%s %s\n',datestr(now,dateformat), 'Master_DARK found.'); 
+    DarkOutput = fitsread(fullfile(APTFolder, 'MASTER', 'Master_Dark.fit'));
+else
+    fprintf('%s %s\n',datestr(now,dateformat), 'generate Master_DARK.'); 
+    DarkStack = [];
+    for i = 1:length(dlist)
+        if contains(dlist(i).name, 'D_')
+            fprintf('%s %s %s\n',datestr(now,dateformat), 'reading DARK', dlist(i).name); 
+            dt = fitsread(fullfile(APTFolder, dlist(i).name));
+            DarkStack = cat(3, DarkStack, dt);
+        end
     end
+
+    fprintf('%s %s\n', datestr(now,dateformat),'Master DARK Start');
+    % (2) Stack Average, Sigma Clipping (-3σ, +3σ)
+    D_Ave = mean(DarkStack, 3);
+    D_Mid = median(DarkStack, 3);
+    D_Std = std(DarkStack, 0, 3);
+
+    % Rejection Map, 1 = Reject / 0 = Keep
+    Rejection = (DarkStack < D_Ave - D_Std .* 3 |...
+                 D_Ave + D_Std .* 3 < DarkStack);
+
+    % Keep Original + Reject and Replace by Median
+    DarkStack = DarkStack .* ~Rejection + D_Mid .* Rejection;    
+
+    DarkOutput = mean(DarkStack, 3);
+    fitswrite(DarkOutput, fullfile(APTFolder, 'MASTER', 'Master_Dark.fit'));
+    fprintf('%s %s\n', datestr(now,dateformat),'Master DARK done');
 end
-
-fprintf('%s %s\n', datestr(now,dateformat),'Master DARK Start');
-% (2) Stack Average, Sigma Clipping (-3σ, +3σ)
-D_Ave = mean(DarkStack, 3);
-D_Mid = median(DarkStack, 3);
-D_Std = std(DarkStack, 0, 3);
-
-% Rejection Map, 1 = Reject / 0 = Keep
-Rejection = (DarkStack < D_Ave - D_Std .* 3 |...
-             D_Ave + D_Std .* 3 < DarkStack);
-
-% Keep Original + Reject and Replace by Median
-DarkStack = DarkStack .* ~Rejection + D_Mid .* Rejection;    
-
-DarkOutput = mean(DarkStack, 3);
-fitswrite(DarkOutput, fullfile(APTFolder, 'MASTER', 'Master_Dark.fit'));
-fprintf('%s %s\n', datestr(now,dateformat),'Master DARK done');
 
 LightStack = [];
 for i = 1:length(dlist)
@@ -126,11 +139,13 @@ L_Ave = mean(AlignedStack, 4);
 L_Mid = median(AlignedStack, 4);
 L_Std = std(AlignedStack, 0, 4);
 % Rejection Map, 1 = Reject / 0 = Keep
+fprintf('%s %s\n', datestr(now,dateformat),'Light Rejection');
 Rejection = (AlignedStack < L_Ave - L_Std .* 4 |...
              L_Ave + L_Std .* 3 < AlignedStack);
 % Keep Original + Reject and Replace by Median
 AlignedStack = AlignedStack .* ~Rejection + L_Mid .* Rejection;  
 % Light File Output
+fprintf('%s %s\n', datestr(now,dateformat),'Light Average');
 LightOutput = mean(AlignedStack, 4);
 
 fitswrite(LightOutput, fullfile(APTFolder, 'MASTER', 'Master_LIGHT.fit'));
